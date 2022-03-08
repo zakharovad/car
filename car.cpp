@@ -2,6 +2,11 @@
 #include <wiringPi.h>
 #include <websocketpp/config/asio_no_tls.hpp>
 #include <websocketpp/server.hpp>
+#include <ArduinoJson.h>
+#include <CarHelper.h>
+#include <CarHelper.cpp>
+#include <thread>
+#include <chrono>
 typedef websocketpp::server<websocketpp::config::asio> server;
 
 using websocketpp::lib::placeholders::_1;
@@ -10,36 +15,47 @@ using websocketpp::lib::bind;
 
 // pull out the type of messages sent by our config
 typedef server::message_ptr message_ptr;
-int pin_num = 11;
-bool pin_flag = false;
-
-
+CarHelper carHelper;
+//models
+DriveModel driveModel;
+DriveModel *pDriveModel  = &driveModel;
 // Define a callback to handle incoming messages
 void on_message(server* s, websocketpp::connection_hdl hdl, message_ptr msg) {
-    std::cout << "on_message called with hdl: " << hdl.lock().get()
-              << " and message: " << msg->get_payload()
-              << std::endl;
-
-
-    pin_flag = !pin_flag;
-    digitalWrite(pin_num, pin_flag ?HIGH:LOW);
-    if (msg->get_payload() == "stop-listening") {
-        s->stop_listening();
+    StaticJsonDocument<1536> doc;
+    DeserializationError error = deserializeJson(doc, msg->get_payload());
+    if (error) {
+        std::string message = error.c_str();
+        s->send(hdl, "json error: " +  message, msg->get_opcode());
+        std::cout << " json error: " << error.c_str()
+                  << std::endl;
         return;
+    }
+    JsonObject root = doc.as<JsonObject>();
+    JsonVariant type = root.getMember("type");
+    if(type.as<std::string>() == pDriveModel->type){
+        carHelper.updateDriveStructure(pDriveModel, root);
     }
 
     try {
         s->send(hdl, msg->get_payload(), msg->get_opcode());
     } catch (websocketpp::exception const & e) {
-        std::cout << "Echo failed because: "
-                  << "(" << e.what() << ")" << std::endl;
+        std::cout << "Echo failed because: " << "(" << e.what() << ")" << std::endl;
     }
 }
+void update(){
+    while (1){
+        carHelper.drivingLoop(pDriveModel);
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    }
 
+}
+void loop(){
+    std::thread tr(update);
+    tr.detach();
+}
 int main() {
-    wiringPiSetup();
-    pinMode(pin_num, OUTPUT);
     try {
+
         server echo_server;
         // Set logging settings
         echo_server.set_access_channels(websocketpp::log::alevel::all);
@@ -55,9 +71,9 @@ int main() {
         echo_server.listen(9002);
         // Start the server accept loop
         echo_server.start_accept();
+        loop();
         // Start the ASIO io_service run loop
         echo_server.run();
-        std::cout << "run server" << std::endl;
     } catch (websocketpp::exception const & e) {
         std::cout << e.what() << std::endl;
     } catch (...) {
