@@ -5,7 +5,7 @@
 #ifndef ORANGECOMPILETEST_DRIVEMODEL_H
 #define ORANGECOMPILETEST_DRIVEMODEL_H
 #include "BaseModel.h"
-#include ".././third-party/ArduinoJson/src/ArduinoJson.h"
+#include "../ArduinoJson/src/ArduinoJson.h"
 struct DriveModel :  BaseModel {
 public:
     int speed = 0;
